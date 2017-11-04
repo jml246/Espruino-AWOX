@@ -1,0 +1,143 @@
+var ble = require("ble_eddystone");
+
+// Here are your list of URLs. Change these to your own site & use a URL
+// shortener to keep them small.
+const urls = [
+  { url: "https://goo.gl/TcmQDo", led: LED1 },
+  { url: "https://goo.gl/X9gmvj", led: LED3 },
+  { url: "https://goo.gl/XECndy", led: LED2 },
+];
+
+let currentUrl = undefined;
+let downTime = undefined;
+let allowPush = true;
+let dur = 900;
+
+function setLed(led, duration, callback) {
+  if (duration === undefined) {
+    duration = 10;
+  }
+
+  digitalPulse(led, 1,[duration]);
+
+  setTimeout(function(){
+    digitalWrite(led, false);
+    if (callback) {
+      callback();
+    }
+  }, duration);
+}
+
+function checkBattery() {
+  if(Puck.getBatteryPercentage() <= 20) {
+    alert(LED1);
+    NRF.setTxPower(-30);
+  } else {
+    allowPush = true;
+    //alert(LED1);
+    NRF.setTxPower(4);
+  }
+}
+
+function toggleBeacon() {
+  if (currentUrl >= 0) {
+    currentUrl++;
+  } else {
+    currentUrl = 0;
+  }
+
+  if (urls[currentUrl]) {
+    ble.advertise(urls[currentUrl].url);
+    setLed(urls[currentUrl].led, dur, afterToggleBeacon);
+  } else {
+    currentUrl = undefined;
+    NRF.setAdvertising({});
+    alert(LED1, 500, 1000);
+  }
+}
+
+function afterToggleBeacon() {
+  checkBattery();
+}
+
+function isDay(){
+  if(Puck.light() > 0.4)
+  {
+      return true;
+  }
+  return false;
+}
+
+function alert(led, onDuration, gap) {
+  if (onDuration === undefined) {
+    onDuration = 50;
+  }
+
+  if (gap === undefined) {
+    gap = 100;
+  }
+
+  setLed(led, onDuration);
+  setTimeout(function(){ setLed(led, onDuration); }, gap);
+  setTimeout(function(){ setLed(led, onDuration); allowPush = true; }, gap * 2);
+}
+
+function onUp() {
+  const delta = Date().ms - downTime;
+  if (delta > 750 && delta < 5000) {
+    toggleBeacon();
+  } else {
+    alert(LED2);
+  }
+  
+}
+
+function onDown() {
+  if (allowPush) {
+    allowPush = false;
+    downTime = Date().ms;
+    setWatch(onUp, BTN, { edge: 'falling', debounce: 50 });
+  }
+}
+function setLight(isOn) {
+  var gatt;
+  NRF.connect("98:7b:f3:67:75:33").then(function(g) {
+    gatt = g;
+    return gatt.getPrimaryService("33160fb9-5b27-4e70-b0f8-ff411e3ae078");
+  }).then(function(service) {
+    return service.getCharacteristic("217887f8-0af2-4002-9c05-24c9ecf71600");
+  }).then(function(characteristic) {
+    characteristic.writeValue(isOn ? 1 : 0);
+  }).then(function() {
+    gatt.disconnect();
+    //console.log("Done!");
+  });
+}
+var on = false;
+setWatch(function() {
+  onDown();
+  on = !on;
+  setLight(on);
+}, BTN, { repeat:true, edge:"rising", debounce:50 });
+var on = false;
+
+setInterval(function(){
+if(!isDay())
+  { 
+    on = !on;
+    setLight(on);
+    digitalPulse(LED1,1,50,200,50,200,50);
+  } 
+}, 60000);
+
+setInterval(function() {
+if (urls[currentUrl]) {
+    ble.advertise(urls[currentUrl].url);
+    setLed(urls[currentUrl].led, 1, afterToggleBeacon);
+  }
+}, dur);
+
+//setWatch(onDown, BTN, { repeat: true, edge: 'rising', debounce: 50 });
+
+// Saving will store the code on the Puck.js to allow it to be run after removing the battery.
+//save();
